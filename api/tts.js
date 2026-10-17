@@ -20,10 +20,8 @@ module.exports = async (req, res) => {
 
     try {
         const tts = new MsEdgeTTS();
-        // Khởi tạo giọng đọc tiếng Việt chuẩn (với giọng nữ HoaiMy hoặc nam NamMinh)
         await tts.setMetadata(Voices.vi_VN_HoaiMy, "audio-24khz-48kbitrate-mono-mp3");
 
-        // Chỉnh tốc độ (ví dụ rate: "+0%", "+20%", "-10%")
         let speedStr = "+0%";
         if (rate && rate !== 1.0) {
             let percent = Math.round((rate - 1.0) * 100);
@@ -38,7 +36,6 @@ module.exports = async (req, res) => {
         }
         const audioBuffer = Buffer.concat(chunks);
 
-        // Trả về dữ liệu dạng Hex để extension dễ dàng phát
         return res.status(200).json({
             success: true,
             audioHex: audioBuffer.toString('hex')
