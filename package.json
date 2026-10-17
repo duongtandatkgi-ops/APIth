@@ -1,0 +1,9 @@
+{
+  "name": "novel-scraper-api",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "node-fetch": "^2.6.7"
+  }
+}
