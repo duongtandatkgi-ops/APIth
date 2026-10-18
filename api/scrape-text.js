@@ -30,14 +30,14 @@ module.exports = async (req, res) => {
 
         let cleanText = '';
         
-        // 1. Quét các thẻ đoạn văn <p>
+        // Lọc các thẻ <p> chứa nội dung truyện thực sự (bỏ qua số thuần túy hoặc câu quá ngắn)
         const pMatches = html.match(/<p[^>]*>([\s\S]*?)<\/p>/gi);
         if (pMatches && pMatches.length > 0) {
             let texts = [];
             for (let p of pMatches) {
                 let inner = p.replace(/<[^>]+>/g, '').trim();
-                // Bỏ qua các dòng quá ngắn hoặc chỉ là số (tránh lỗi hiện số 0)
-                if (inner.length > 15 && isNaN(inner)) {
+                // Chỉ lấy đoạn văn có độ dài > 5 ký tự và KHÔNG PHẢI LÀ SỐ THUẦN TÚY (/^\d+$/)
+                if (inner.length > 5 && !/^\d+$/.test(inner)) {
                     texts.push(inner);
                 }
             }
@@ -46,16 +46,14 @@ module.exports = async (req, res) => {
             }
         }
 
-        // 2. Nếu không bắt được qua thẻ p, lọc toàn bộ body
+        // Phương án dự phòng nếu trang không dùng thẻ p chuẩn
         if (!cleanText || cleanText.length < 50) {
-            const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-            let bodyHtml = bodyMatch ? bodyMatch[1] : html;
-            bodyHtml = bodyHtml.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+            let bodyHtml = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
             bodyHtml = bodyHtml.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '');
             
-            let rawLines = bodyHtml.replace(/<[^>]+>/g, '\n').split('\n');
-            let filteredLines = rawLines.map(l => l.trim()).filter(l => l.length > 20 && isNaN(l));
-            cleanText = filteredLines.join('\n\n');
+            const lines = bodyHtml.replace(/<[^>]+>/g, '\n').split('\n');
+            let validLines = lines.map(l => l.trim()).filter(l => l.length > 10 && !/^\d+$/.test(l));
+            cleanText = validLines.join('\n\n');
         }
 
         if (!cleanText || cleanText.length < 20) {
@@ -67,7 +65,7 @@ module.exports = async (req, res) => {
 
         return res.status(200).json({
             success: true,
-            text: cleanText.substring(0, 15000)
+            text: cleanText.substring(0, 20000)
         });
 
     } catch (err) {
