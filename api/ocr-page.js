@@ -1,5 +1,4 @@
 const fetch = require('node-fetch');
-const { URLSearchParams } = require('url');
 
 module.exports = async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -33,20 +32,18 @@ module.exports = async (req, res) => {
         const buffer = Buffer.from(arrayBuffer);
         const base64Data = `data:image/jpeg;base64,${buffer.toString('base64')}`;
 
-        // 2. Chuẩn bị tham số gửi sang OCR.space
-        const params = new URLSearchParams();
-        params.append('apikey', 'helloworld');
-        params.append('language', 'vie');
-        params.append('base64Image', base64Data);
-        params.append('isOverlayRequired', 'false');
-
-        // 3. Gửi request kèm theo Content-Type chuẩn form-urlencoded
+        // 2. Gửi request dưới dạng JSON chuẩn xác sang OCR.space
         const ocrResponse = await fetch('https://api.ocr.space/parse/image', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/x-www-form-urlencoded'
+                'Content-Type': 'application/json',
+                'apikey': 'helloworld'
             },
-            body: params
+            body: JSON.stringify({
+                base64Image: base64Data,
+                language: 'vie',
+                isOverlayRequired: false
+            })
         });
 
         const data = await ocrResponse.json();
