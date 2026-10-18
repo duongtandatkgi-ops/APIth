@@ -30,26 +30,38 @@ module.exports = async (req, res) => {
 
         let cleanText = '';
         
-        // Tự động bóc tách các đoạn văn <p> bằng Regex (không cần thư viện ngoài)
+        // 1. Quét các thẻ đoạn văn <p>
         const pMatches = html.match(/<p[^>]*>([\s\S]*?)<\/p>/gi);
         if (pMatches && pMatches.length > 0) {
-            let texts = pMatches.map(p => p.replace(/<[^>]+>/g, '').trim()).filter(t => t.length > 15);
-            cleanText = texts.join('\n\n');
+            let texts = [];
+            for (let p of pMatches) {
+                let inner = p.replace(/<[^>]+>/g, '').trim();
+                // Bỏ qua các dòng quá ngắn hoặc chỉ là số (tránh lỗi hiện số 0)
+                if (inner.length > 15 && isNaN(inner)) {
+                    texts.push(inner);
+                }
+            }
+            if (texts.length > 0) {
+                cleanText = texts.join('\n\n');
+            }
         }
 
-        // Nếu không bắt được thẻ p, lọc toàn bộ body
+        // 2. Nếu không bắt được qua thẻ p, lọc toàn bộ body
         if (!cleanText || cleanText.length < 50) {
             const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
             let bodyHtml = bodyMatch ? bodyMatch[1] : html;
             bodyHtml = bodyHtml.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
             bodyHtml = bodyHtml.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '');
-            cleanText = bodyHtml.replace(/<[^>]+>/g, '\n').replace(/\n\s*\n/g, '\n\n').trim();
+            
+            let rawLines = bodyHtml.replace(/<[^>]+>/g, '\n').split('\n');
+            let filteredLines = rawLines.map(l => l.trim()).filter(l => l.length > 20 && isNaN(l));
+            cleanText = filteredLines.join('\n\n');
         }
 
         if (!cleanText || cleanText.length < 20) {
             return res.status(200).json({ 
                 success: false, 
-                error: 'Không tìm thấy nội dung chữ trên trang này.' 
+                error: 'Không tìm thấy nội dung chữ hợp lệ trên trang này.' 
             });
         }
 
