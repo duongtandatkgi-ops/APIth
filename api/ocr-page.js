@@ -14,12 +14,12 @@ module.exports = async (req, res) => {
     }
 
     try {
-        // Khởi tạo Tesseract OCR cho tiếng Việt, lưu cache vào /tmp của Vercel
+        // Chỉ định rõ ràng langPath CDN chính thức để tải nhanh tệp tiếng Việt
         const worker = await createWorker('vie', 1, {
-            cachePath: '/tmp',
+            langPath: 'https://tessdata.projectnaptha.com/4.00_best',
+            cachePath: '/tmp'
         });
 
-        // Tải ảnh từ nguồn truyện qua proxy nội bộ
         const imgRes = await fetch(imageUrl, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -29,13 +29,12 @@ module.exports = async (req, res) => {
 
         if (!imgRes.ok) {
             await worker.terminate();
-            return res.status(200).json({ success: true, text: '' });
+            return res.status(200).json({ success: false, error: 'Không thể tải hình ảnh từ trang đích.' });
         }
 
         const arrayBuffer = await imgRes.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
 
-        // Nhận diện chữ từ ảnh
         const { data: { text } } = await worker.recognize(buffer);
         await worker.terminate();
 
@@ -45,6 +44,6 @@ module.exports = async (req, res) => {
         });
 
     } catch (err) {
-        return res.status(200).json({ success: false, error: err.message });
+        return res.status(200).json({ success: false, error: err.message || err.toString() });
     }
 };
