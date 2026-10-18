@@ -1,4 +1,5 @@
 const fetch = require('node-fetch');
+const Jimp = require('jimp');
 
 module.exports = async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -13,7 +14,7 @@ module.exports = async (req, res) => {
     }
 
     try {
-        // 1. Tải ảnh từ trang truyện với Referer động để lách chống chặn
+        // 1. Tải ảnh từ trang truyện với Referer động
         const parsedUrl = new URL(imageUrl);
         const dynamicReferer = `${parsedUrl.protocol}//${parsedUrl.hostname}/`;
 
@@ -30,9 +31,17 @@ module.exports = async (req, res) => {
 
         const arrayBuffer = await imgRes.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
-        const base64Data = `data:image/jpeg;base64,${buffer.toString('base64')}`;
 
-        // 2. Gửi sang OCR.space với Engine 2 và Scale để quét chữ truyện tranh cực chuẩn
+        // 2. Dùng Jimp xử lý ảnh Webtoon siêu dài (cắt/thu nhỏ về kích thước an toàn cho OCR)
+        const image = await Jimp.read(buffer);
+        
+        // Giới hạn chiều rộng và chiều cao để không bị quá tải bộ nhớ OCR
+        image.scaleToFit(1000, 2500); // Tự động co giãn vừa khung chuẩn của OCR.space
+        
+        const compressedBuffer = await image.getBufferAsync(Jimp.MIME_JPEG);
+        const base64Data = `data:image/jpeg;base64,${compressedBuffer.toString('base64')}`;
+
+        // 3. Gửi sang OCR.space với Engine 2
         const ocrResponse = await fetch('https://api.ocr.space/parse/image', {
             method: 'POST',
             headers: {
@@ -44,7 +53,7 @@ module.exports = async (req, res) => {
                 language: 'vie',
                 isOverlayRequired: false,
                 scale: true,
-                OCREngine: '2' // Engine 2 chuyên xử lý bong bóng thoại và chữ trong truyện tranh
+                OCREngine: '2'
             })
         });
 
