@@ -1,5 +1,4 @@
 const fetch = require('node-fetch');
-const cheerio = require('cheerio');
 
 module.exports = async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -14,66 +13,55 @@ module.exports = async (req, res) => {
     }
 
     try {
-        // Gửi request cào dữ liệu với User-Agent giả lập trình duyệt thật
         const response = await fetch(targetUrl, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en-`q=0.7'
-            },
-            timeout: 10000 // Giới hạn thời gian chờ 10 giây để tránh treo server
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+            }
         });
 
         if (!response.ok) {
             return res.status(200).json({ 
                 success: false, 
-                error: `Trang web từ chối kết nối (HTTP ${response.status}). Có thể trang này chặn Cloudflare/Bot.` 
+                error: `Trang web từ chối kết nối (Mã lỗi: ${response.status})` 
             });
         }
 
         const html = await response.text();
-        const $ = cheerio.load(html);
 
-        // Xóa các thành phần rác
-        $('script, style, nav, footer, header, .ads, .advertisement').remove();
-
-        // Thử tìm nội dung theo các khung chứa nội dung phổ biến
-        let text = '';
-        const selectors = ['.reading-content', '.chapter-c', '#chapter-content', '.content', '.box-content', 'article', '.story-content', '.chapter-content'];
+        let cleanText = '';
         
-        for (let sel of selectors) {
-            if ($(sel).length > 0) {
-                text = $(sel).text();
-                break;
-            }
+        // Tự động bóc tách các đoạn văn <p> bằng Regex (không cần thư viện ngoài)
+        const pMatches = html.match(/<p[^>]*>([\s\S]*?)<\/p>/gi);
+        if (pMatches && pMatches.length > 0) {
+            let texts = pMatches.map(p => p.replace(/<[^>]+>/g, '').trim()).filter(t => t.length > 15);
+            cleanText = texts.join('\n\n');
         }
 
-        // Nếu không tìm thấy qua selector, quét toàn bộ thẻ đoạn văn <p>
-        if (!text || text.trim().length < 50) {
-            let paragraphs = [];
-            $('p').each((i, el) => {
-                let pText = $(el).text().trim();
-                if (pText.length > 20) paragraphs.push(pText);
-            });
-            text = paragraphs.join('\n\n');
+        // Nếu không bắt được thẻ p, lọc toàn bộ body
+        if (!cleanText || cleanText.length < 50) {
+            const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+            let bodyHtml = bodyMatch ? bodyMatch[1] : html;
+            bodyHtml = bodyHtml.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+            bodyHtml = bodyHtml.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '');
+            cleanText = bodyHtml.replace(/<[^>]+>/g, '\n').replace(/\n\s*\n/g, '\n\n').trim();
         }
 
-        if (!text || text.trim().length === 0) {
+        if (!cleanText || cleanText.length < 20) {
             return res.status(200).json({ 
                 success: false, 
-                error: 'Không tìm thấy nội dung chữ. Trang truyện này có thể dùng cấu trúc ẩn hoặc chống cào dữ liệu.' 
+                error: 'Không tìm thấy nội dung chữ trên trang này.' 
             });
         }
 
         return res.status(200).json({
             success: true,
-            text: text.replace(/\n\s*\n/g, '\n\n').trim()
+            text: cleanText.substring(0, 15000)
         });
 
     } catch (err) {
-        // Bắt mọi lỗi phát sinh để trả về JSON an toàn, tuyệt đối không làm sập Function Vercel
         return res.status(200).json({ 
             success: false, 
-            error: `Lỗi kết nối server: ${err.message || err.toString()}` 
+            error: `Lỗi xử lý: ${err.message || err.toString()}` 
         });
     }
 };
