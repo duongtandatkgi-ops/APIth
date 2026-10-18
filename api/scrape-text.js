@@ -30,7 +30,7 @@ module.exports = async (req, res) => {
 
         let cleanText = '';
         
-        // 1. Khoanh vùng các khung nội dung truyện chính thức của etruyen.online và các web truyện chữ phổ biến
+        // 1. Khoanh vùng chính xác khung chứa nội dung chương của etruyen.online
         const contentContainers = [
             /<div[^>]*class="[^"]*chapter-content[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
             /<div[^>]*class="[^"]*content-chapter[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
@@ -47,14 +47,20 @@ module.exports = async (req, res) => {
             }
         }
 
-        // Nếu tìm thấy khung chứa, chỉ quét thẻ <p> bên trong khung đó
+        // Nếu bắt được khung, lọc từng thẻ <p> bên trong
         if (targetHtml) {
             const pMatches = targetHtml.match(/<p[^>]*>([\s\S]*?)<\/p>/gi);
             if (pMatches && pMatches.length > 0) {
                 let texts = [];
                 for (let p of pMatches) {
                     let inner = p.replace(/<[^>]+>/g, '').trim();
-                    if (inner.length > 5 && !/^\d+$/.test(inner)) {
+                    // Lọc bỏ các dòng rác, thông báo chuyển khoản hoặc quá ngắn
+                    if (inner.length > 5 && 
+                        !/^\d+$/.test(inner) && 
+                        !inner.includes('chuyển khoản') && 
+                        !inner.includes('thanh toán') && 
+                        !inner.includes('Mua Truyện') &&
+                        !inner.includes('Mọi thắc mắc')) {
                         texts.push(inner);
                     }
                 }
@@ -64,19 +70,25 @@ module.exports = async (req, res) => {
             }
         }
 
-        // 2. Dự phòng nếu không bắt được khung chính, lọc toàn bộ body nhưng bỏ qua các thẻ rác
+        // 2. Dự phòng: Cắt bỏ thủ công các phần rác đầu/cuối nếu quét toàn trang
         if (!cleanText || cleanText.length < 50) {
             let bodyHtml = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
             bodyHtml = bodyHtml.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '');
-            bodyHtml = bodyHtml.replace(/<header\b[^<]*>[\s\S]*?<\/header>/gi, '');
-            bodyHtml = bodyHtml.replace(/<footer\b[^<]*>[\s\S]*?<\/footer>/gi, '');
             
+            // Cắt từ khóa bắt đầu nội dung chương thường gặp đến trước phần bình luận/truyện cùng thể loại
+            const startIdx = bodyHtml.indexOf('Hai giờ sáng'); // Hoặc điểm bắt đầu nội dung
+            const endIdx = bodyHtml.indexOf('Truyện cùng thể loại');
+            
+            if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+                bodyHtml = bodyHtml.substring(startIdx, endIdx);
+            }
+
             const pMatches = bodyHtml.match(/<p[^>]*>([\s\S]*?)<\/p>/gi);
             if (pMatches) {
                 let texts = [];
                 for (let p of pMatches) {
                     let inner = p.replace(/<[^>]+>/g, '').trim();
-                    if (inner.length > 15 && !/^\d+$/.test(inner) && !inner.includes('Đăng nhập') && !inner.includes('Tài khoản')) {
+                    if (inner.length > 10 && !/^\d+$/.test(inner) && !inner.includes('chuyển khoản')) {
                         texts.push(inner);
                     }
                 }
