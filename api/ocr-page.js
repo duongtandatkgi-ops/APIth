@@ -32,7 +32,7 @@ module.exports = async (req, res) => {
         const buffer = Buffer.from(arrayBuffer);
         const base64Data = `data:image/jpeg;base64,${buffer.toString('base64')}`;
 
-        // 2. Gửi request dưới dạng JSON chuẩn xác sang OCR.space
+        // 2. Gửi sang OCR.space với Engine 2 và Scale để quét chữ truyện tranh cực chuẩn
         const ocrResponse = await fetch('https://api.ocr.space/parse/image', {
             method: 'POST',
             headers: {
@@ -42,7 +42,9 @@ module.exports = async (req, res) => {
             body: JSON.stringify({
                 base64Image: base64Data,
                 language: 'vie',
-                isOverlayRequired: false
+                isOverlayRequired: false,
+                scale: true,
+                OCREngine: '2' // Engine 2 chuyên xử lý bong bóng thoại và chữ trong truyện tranh
             })
         });
 
