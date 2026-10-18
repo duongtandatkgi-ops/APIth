@@ -1,5 +1,4 @@
 const fetch = require('node-fetch');
-const Jimp = require('jimp');
 const { URLSearchParams } = require('url');
 
 module.exports = async (req, res) => {
@@ -15,7 +14,7 @@ module.exports = async (req, res) => {
     }
 
     try {
-        // 1. Tải ảnh qua server với Referer chuẩn để lách luật chống chặn
+        // 1. Tải ảnh từ trang truyện với Referer động để lách chống chặn
         const parsedUrl = new URL(imageUrl);
         const dynamicReferer = `${parsedUrl.protocol}//${parsedUrl.hostname}/`;
 
@@ -32,22 +31,21 @@ module.exports = async (req, res) => {
 
         const arrayBuffer = await imgRes.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
+        const base64Data = `data:image/jpeg;base64,${buffer.toString('base64')}`;
 
-        // 2. Dùng Jimp tự động thu nhỏ và nén ảnh xuống dưới 1MB chuẩn chỉnh
-        const image = await Jimp.read(buffer);
-        image.resize(1000, Jimp.AUTO); // Thu nhỏ chiều rộng về 1000px, giữ nguyên tỷ lệ
-        const compressedBuffer = await image.getBufferAsync(Jimp.MIME_JPEG);
-        const base64Data = `data:image/jpeg;base64,${compressedBuffer.toString('base64')}`;
-
-        // 3. Gửi sang OCR API công cộng (dùng chung hoàn toàn miễn phí)
+        // 2. Chuẩn bị tham số gửi sang OCR.space
         const params = new URLSearchParams();
         params.append('apikey', 'helloworld');
         params.append('language', 'vie');
         params.append('base64Image', base64Data);
         params.append('isOverlayRequired', 'false');
 
+        // 3. Gửi request kèm theo Content-Type chuẩn form-urlencoded
         const ocrResponse = await fetch('https://api.ocr.space/parse/image', {
             method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
             body: params
         });
 
