@@ -18,57 +18,67 @@ module.exports = async (req, res) => {
     try {
         const response = await fetch(targetUrl, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'vi-VN,vi;q=0.9',
-                'Referer': new URL(targetUrl).origin
+                'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8',
+                'Referer': 'https://truyenqq.com.vn/'
             }
         });
 
         if (!response.ok) {
-            throw new Error(`Lỗi kết nối: ${response.status}`);
+            return res.status(500).json({ success: false, error: `Lỗi kết nối trang đích: ${response.status}` });
         }
 
         const html = await response.text();
         const $ = cheerio.load(html);
 
-        // Các khung chứa nội dung chương truyện tranh phổ biến
-        const comicSelectors = ['.reading-detail', '.page-chapter', '.box-read', '.chapter-content', '.reading-content'];
-        let comicBox = null;
-        for (let sel of comicSelectors) {
-            if ($(sel).length > 0) {
-                comicBox = $(sel).first();
-                break;
-            }
-        }
-
         let images = [];
-        let container = comicBox && comicBox.length > 0 ? comicBox : $('body');
 
-        container.find('img').each((i, el) => {
+        // 1. Quét qua các thẻ img thông thường và lazy-load
+        $('img').each((i, el) => {
             let imgUrl = $(el).attr('data-src') || $(el).attr('data-original') \vert{}\vert{}$(el).attr('src');
             if (imgUrl) {
-                // Chuẩn hóa URL tương đối thành tuyệt đối
                 if (imgUrl.startsWith('//')) {
                     imgUrl = 'https:' + imgUrl;
                 } else if (imgUrl.startsWith('/')) {
-                    const parsedUrl = new URL(targetUrl);
-                    imgUrl = parsedUrl.origin + imgUrl;
+                    try {
+                        const parsedUrl = new URL(targetUrl);
+                        imgUrl = parsedUrl.origin + imgUrl;
+                    } catch (e) {}
                 }
-                
-                const lowerImg = imgUrl.toLowerCase();
-                // Lọc bỏ rác, logo nhỏ, icon
+
+                const lower = imgUrl.toLowerCase();
+                // Lọc bỏ rác, icon, logo
                 if (
-                    !lowerImg.includes('logo') && 
-                    !lowerImg.includes('icon') && 
-                    !lowerImg.includes('avatar') &&
-                    !images.includes(imgUrl) &&
-                    (lowerImg.startsWith('http://') || lowerImg.startsWith('https://'))
+                    imgUrl.startsWith('http') &&
+                    !lower.includes('logo') &&
+                    !lower.includes('icon') &&
+                    !lower.includes('avatar') &&
+                    !lower.includes('placeholder') &&
+                    !images.includes(imgUrl)
                 ) {
                     images.push(imgUrl);
                 }
             }
         });
+
+        // 2. Dự phòng: Nếu dùng thẻ img không bắt được hết, quét toàn bộ nội dung HTML bằng Regex tìm link ảnh CDN truyện
+        if (images.length === 0) {
+            const imgRegex = /https?:\/\/[^\s"'<>]+?\.(png|jpg|jpeg|webp)/gi;
+            let matches = html.match(imgRegex);
+            if (matches) {
+                for (let m of matches) {
+                    const lower = m.toLowerCase();
+                    if (
+                        !lower.includes('logo') && 
+                        !lower.includes('icon') && 
+                        !images.includes(m)
+                    ) {
+                        images.push(m);
+                    }
+                }
+            }
+        }
 
         return res.status(200).json({
             success: true,
@@ -79,6 +89,6 @@ module.exports = async (req, res) => {
         });
 
     } catch (err) {
-        return res.status(500).json({ success: false, error: err.message });
+        return res.status(500).json({ success: false, error: err.message || 'Lỗi xử lý hệ thống nội bộ.' });
     }
 };
