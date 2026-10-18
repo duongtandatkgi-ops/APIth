@@ -1,4 +1,6 @@
 const fetch = require('node-fetch');
+const Jimp = require('jimp');
+const { URLSearchParams } = require('url');
 
 module.exports = async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -12,10 +14,8 @@ module.exports = async (req, res) => {
         return res.status(400).json({ success: false, error: 'Thiếu tham số URL ảnh!' });
     }
 
-    // Bạn có thể dán trực tiếp Gemini API Key vào đây hoặc để qua biến môi trường Vercel
-    const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'DÁN_GEMINI_API_KEY_CỦA_BẠN_VÀO_ĐÂY';
-
     try {
+        // 1. Tải ảnh qua server với Referer chuẩn để lách luật chống chặn
         const parsedUrl = new URL(imageUrl);
         const dynamicReferer = `${parsedUrl.protocol}//${parsedUrl.hostname}/`;
 
@@ -31,44 +31,36 @@ module.exports = async (req, res) => {
         }
 
         const arrayBuffer = await imgRes.arrayBuffer();
-        const base64Data = Buffer.from(arrayBuffer).toString('base64');
-        const mimeType = imgRes.headers.get('content-type') || 'image/jpeg';
+        const buffer = Buffer.from(arrayBuffer);
 
-        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
-        
-        const payload = {
-            contents: [
-                {
-                    parts: [
-                        {
-                            text: "Hãy đọc và trích xuất toàn bộ văn bản, chữ viết, bong bóng thoại tiếng Việt có trong bức ảnh truyện tranh này. Chỉ trả về phần nội dung văn bản tìm được, giữ nguyên thứ tự từ trên xuống dưới, không thêm lời bình luận."
-                        },
-                        {
-                            inline_data: {
-                                mime_type: mimeType,
-                                data: base64Data
-                            }
-                        }
-                    ]
-                }
-            ]
-        };
+        // 2. Dùng Jimp tự động thu nhỏ và nén ảnh xuống dưới 1MB chuẩn chỉnh
+        const image = await Jimp.read(buffer);
+        image.resize(1000, Jimp.AUTO); // Thu nhỏ chiều rộng về 1000px, giữ nguyên tỷ lệ
+        const compressedBuffer = await image.getBufferAsync(Jimp.MIME_JPEG);
+        const base64Data = `data:image/jpeg;base64,${compressedBuffer.toString('base64')}`;
 
-        const geminiRes = await fetch(geminiUrl, {
+        // 3. Gửi sang OCR API công cộng (dùng chung hoàn toàn miễn phí)
+        const params = new URLSearchParams();
+        params.append('apikey', 'helloworld');
+        params.append('language', 'vie');
+        params.append('base64Image', base64Data);
+        params.append('isOverlayRequired', 'false');
+
+        const ocrResponse = await fetch('https://api.ocr.space/parse/image', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            body: params
         });
 
-        const geminiData = await geminiRes.json();
+        const data = await ocrResponse.json();
 
-        if (geminiData.error) {
-            return res.status(200).json({ success: false, error: geminiData.error.message });
+        if (data.IsErroredOnProcessing) {
+            const errorMsg = data.ErrorMessage ? data.ErrorMessage[0] : 'Lỗi xử lý OCR';
+            return res.status(200).json({ success: false, error: errorMsg });
         }
 
         let extractedText = '';
-        if (geminiData.candidates && geminiData.candidates[0]?.content?.parts?.[0]?.text) {
-            extractedText = geminiData.candidates[0].content.parts[0].text;
+        if (data && data.ParsedResults && data.ParsedResults.length > 0) {
+            extractedText = data.ParsedResults[0].ParsedText || '';
         }
 
         return res.status(200).json({
