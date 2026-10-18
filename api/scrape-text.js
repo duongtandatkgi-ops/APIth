@@ -4,8 +4,6 @@ const cheerio = require('cheerio');
 module.exports = async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
     }
@@ -16,57 +14,66 @@ module.exports = async (req, res) => {
     }
 
     try {
+        // Gửi request cào dữ liệu với User-Agent giả lập trình duyệt thật
         const response = await fetch(targetUrl, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'vi-VN,vi;q=0.9'
-            }
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en-`q=0.7'
+            },
+            timeout: 10000 // Giới hạn thời gian chờ 10 giây để tránh treo server
         });
 
         if (!response.ok) {
-            throw new Error(`Lỗi kết nối: ${response.status}`);
+            return res.status(200).json({ 
+                success: false, 
+                error: `Trang web từ chối kết nối (HTTP ${response.status}). Có thể trang này chặn Cloudflare/Bot.` 
+            });
         }
 
         const html = await response.text();
         const $ = cheerio.load(html);
 
-        // Xóa bỏ các thành phần rác
-        $('script, style, nav, footer, header, .ads, .hidden, iframe, noscript').remove();
+        // Xóa các thành phần rác
+        $('script, style, nav, footer, header, .ads, .advertisement').remove();
 
-        // Các selector chứa nội dung văn bản truyện chữ
-        const selectors = ['.chapter-c', '.reading-content', '#content', 'article', '.box-content', '.chapter-content', '.entry-content'];
-        let contentBox = null;
+        // Thử tìm nội dung theo các khung chứa nội dung phổ biến
+        let text = '';
+        const selectors = ['.reading-content', '.chapter-c', '#chapter-content', '.content', '.box-content', 'article', '.story-content', '.chapter-content'];
+        
         for (let sel of selectors) {
             if ($(sel).length > 0) {
-                contentBox = $(sel).first();
+                text = $(sel).text();
                 break;
             }
         }
 
-        let textContent = "";
-        if (contentBox && contentBox.length > 0) {
-            contentBox.find('br').replaceWith('\n');
-            textContent = contentBox.text();
-        } else {
-            $('body').find('br').replaceWith('\n');
-            textContent = $('body').text();
+        // Nếu không tìm thấy qua selector, quét toàn bộ thẻ đoạn văn <p>
+        if (!text || text.trim().length < 50) {
+            let paragraphs = [];
+            $('p').each((i, el) => {
+                let pText = $(el).text().trim();
+                if (pText.length > 20) paragraphs.push(pText);
+            });
+            text = paragraphs.join('\n\n');
         }
 
-        const cleanText = textContent
-            .split('\n')
-            .map(line => line.trim())
-            .filter(line => line.length > 0)
-            .join('\n');
+        if (!text || text.trim().length === 0) {
+            return res.status(200).json({ 
+                success: false, 
+                error: 'Không tìm thấy nội dung chữ. Trang truyện này có thể dùng cấu trúc ẩn hoặc chống cào dữ liệu.' 
+            });
+        }
 
         return res.status(200).json({
             success: true,
-            type: 'novel',
-            url: targetUrl,
-            content: cleanText.substring(0, 15000)
+            text: text.replace(/\n\s*\n/g, '\n\n').trim()
         });
 
     } catch (err) {
-        return res.status(500).json({ success: false, error: err.message });
+        // Bắt mọi lỗi phát sinh để trả về JSON an toàn, tuyệt đối không làm sập Function Vercel
+        return res.status(200).json({ 
+            success: false, 
+            error: `Lỗi kết nối server: ${err.message || err.toString()}` 
+        });
     }
 };
