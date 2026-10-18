@@ -1,40 +1,68 @@
 const fetch = require('node-fetch');
+const { URLSearchParams } = require('url');
 
 module.exports = async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
     }
 
     const imageUrl = req.query.url;
     if (!imageUrl) {
-        return res.status(400).send('Thiếu URL ảnh');
+        return res.status(400).json({ success: false, error: 'Thiếu tham số URL ảnh!' });
     }
 
     try {
-        // Tự động bóc tách tên miền từ URL ảnh để làm Referer chuẩn xác cho từng web (MangaToon, TruyệnQQ, v.v.)
+        // Tự động bóc tách domain để làm Referer chuẩn lách chống trộm băng thông
         const parsedUrl = new URL(imageUrl);
         const dynamicReferer = `${parsedUrl.protocol}//${parsedUrl.hostname}/`;
 
-        const response = await fetch(imageUrl, {
+        const imgRes = await fetch(imageUrl, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
                 'Referer': dynamicReferer
             }
         });
 
-        if (!response.ok) {
-            return res.status(response.status).send('Không thể tải ảnh');
+        if (!imgRes.ok) {
+            return res.status(200).json({ success: false, error: `Không tải được ảnh (HTTP ${imgRes.status})` });
         }
 
-        const contentType = response.headers.get('content-type') || 'image/jpeg';
-        res.setHeader('Content-Type', contentType);
+        const arrayBuffer = await imgRes.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        const base64Data = `data:image/jpeg;base64,${buffer.toString('base64')}`;
 
-        const buffer = await response.buffer();
-        return res.send(buffer);
+        // Gửi dữ liệu sang OCR.space API
+        const params = new URLSearchParams();
+        params.append('apikey', 'helloworld');
+        params.append('language', 'vie');
+        params.append('base64Image', base64Data);
+        params.append('isOverlayRequired', 'false');
+
+        const ocrResponse = await fetch('https://api.ocr.space/parse/image', {
+            method: 'POST',
+            body: params
+        });
+
+        const data = await ocrResponse.json();
+
+        if (data.IsErroredOnProcessing) {
+            const errorMsg = data.ErrorMessage ? data.ErrorMessage[0] : 'Lỗi xử lý từ OCR.space';
+            return res.status(200).json({ success: false, error: errorMsg });
+        }
+
+        let extractedText = '';
+        if (data && data.ParsedResults && data.ParsedResults.length > 0) {
+            extractedText = data.ParsedResults[0].ParsedText || '';
+        }
+
+        return res.status(200).json({
+            success: true,
+            text: extractedText.trim()
+        });
+
     } catch (err) {
-        return res.status(500).send(err.message);
+        return res.status(200).json({ success: false, error: err.message || err.toString() });
     }
 };
