@@ -1,8 +1,11 @@
 const fetch = require('node-fetch');
+const cheerio = require('cheerio');
 
 module.exports = async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
     }
@@ -15,103 +18,53 @@ module.exports = async (req, res) => {
     try {
         const response = await fetch(targetUrl, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'vi-VN,vi;q=0.9'
             }
         });
 
         if (!response.ok) {
-            return res.status(200).json({ 
-                success: false, 
-                error: `Trang web từ chối kết nối (Mã lỗi: ${response.status})` 
-            });
+            throw new Error(`Lỗi kết nối: ${response.status}`);
         }
 
         const html = await response.text();
+        const $ = cheerio.load(html);
 
-        let cleanText = '';
-        
-        // 1. Khoanh vùng chính xác khung chứa nội dung chương của etruyen.online
-        const contentContainers = [
-            /<div[^>]*class="[^"]*chapter-content[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
-            /<div[^>]*class="[^"]*content-chapter[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
-            /<div[^>]*class="[^"]*reading-content[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
-            /<div[^>]*id="chapter-content"[^>]*>([\s\S]*?)<\/div>/i
-        ];
+        $('script, style, nav, footer, header, .ads, .hidden, iframe, noscript').remove();
 
-        let targetHtml = '';
-        for (let regex of contentContainers) {
-            let match = html.match(regex);
-            if (match && match[1]) {
-                targetHtml = match[1];
+        const selectors = ['.chapter-c', '.reading-content', '#content', 'article', '.box-content', '.chapter-content', '.entry-content'];
+        let contentBox = null;
+        for (let sel of selectors) {
+            if ($(sel).length > 0) {
+                contentBox = $(sel).first();
                 break;
             }
         }
 
-        // Nếu bắt được khung, lọc từng thẻ <p> bên trong
-        if (targetHtml) {
-            const pMatches = targetHtml.match(/<p[^>]*>([\s\S]*?)<\/p>/gi);
-            if (pMatches && pMatches.length > 0) {
-                let texts = [];
-                for (let p of pMatches) {
-                    let inner = p.replace(/<[^>]+>/g, '').trim();
-                    // Lọc bỏ các dòng rác, thông báo chuyển khoản hoặc quá ngắn
-                    if (inner.length > 5 && 
-                        !/^\d+$/.test(inner) && 
-                        !inner.includes('chuyển khoản') && 
-                        !inner.includes('thanh toán') && 
-                        !inner.includes('Mua Truyện') &&
-                        !inner.includes('Mọi thắc mắc')) {
-                        texts.push(inner);
-                    }
-                }
-                if (texts.length > 0) {
-                    cleanText = texts.join('\n\n');
-                }
-            }
+        let textContent = "";
+        if (contentBox && contentBox.length > 0) {
+            contentBox.find('br').replaceWith('\n');
+            textContent = contentBox.text();
+        } else {
+            $('body').find('br').replaceWith('\n');
+            textContent = $('body').text();
         }
 
-        // 2. Dự phòng: Cắt bỏ thủ công các phần rác đầu/cuối nếu quét toàn trang
-        if (!cleanText || cleanText.length < 50) {
-            let bodyHtml = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
-            bodyHtml = bodyHtml.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '');
-            
-            // Cắt từ khóa bắt đầu nội dung chương thường gặp đến trước phần bình luận/truyện cùng thể loại
-            const startIdx = bodyHtml.indexOf('Hai giờ sáng'); // Hoặc điểm bắt đầu nội dung
-            const endIdx = bodyHtml.indexOf('Truyện cùng thể loại');
-            
-            if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-                bodyHtml = bodyHtml.substring(startIdx, endIdx);
-            }
-
-            const pMatches = bodyHtml.match(/<p[^>]*>([\s\S]*?)<\/p>/gi);
-            if (pMatches) {
-                let texts = [];
-                for (let p of pMatches) {
-                    let inner = p.replace(/<[^>]+>/g, '').trim();
-                    if (inner.length > 10 && !/^\d+$/.test(inner) && !inner.includes('chuyển khoản')) {
-                        texts.push(inner);
-                    }
-                }
-                cleanText = texts.join('\n\n');
-            }
-        }
-
-        if (!cleanText || cleanText.length < 20) {
-            return res.status(200).json({ 
-                success: false, 
-                error: 'Không tìm thấy nội dung chữ hợp lệ trên trang này.' 
-            });
-        }
+        const cleanText = textContent
+            .split('\n')
+            .map(line => line.trim())
+            .filter(line => line.length > 0)
+            .join('\n');
 
         return res.status(200).json({
             success: true,
-            text: cleanText.substring(0, 25000)
+            url: targetUrl,
+            text: cleanText.substring(0, 15000),
+            content: cleanText.substring(0, 15000)
         });
 
     } catch (err) {
-        return res.status(200).json({ 
-            success: false, 
-            error: `Lỗi xử lý: ${err.message || err.toString()}` 
-        });
+        return res.status(500).json({ success: false, error: err.message });
     }
 };
