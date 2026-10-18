@@ -1,4 +1,3 @@
-const { createWorker } = require('tesseract.js');
 const fetch = require('node-fetch');
 
 module.exports = async (req, res) => {
@@ -14,33 +13,20 @@ module.exports = async (req, res) => {
     }
 
     try {
-        // Chỉ định rõ ràng langPath CDN chính thức để tải nhanh tệp tiếng Việt
-        const worker = await createWorker('vie', 1, {
-            langPath: 'https://tessdata.projectnaptha.com/4.00_best',
-            cachePath: '/tmp'
-        });
+        // Sử dụng OCR Cloud API miễn phí với hỗ trợ tiếng Việt (vie)
+        const ocrApiUrl = `https://api.ocr.space/parse/imageurl?apikey=helloworld&url=${encodeURIComponent(imageUrl)}&language=vie&isOverlayRequired=false`;
+        
+        const response = await fetch(ocrApiUrl);
+        const data = await response.json();
 
-        const imgRes = await fetch(imageUrl, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                'Referer': 'https://truyenqq.com.vn/'
-            }
-        });
-
-        if (!imgRes.ok) {
-            await worker.terminate();
-            return res.status(200).json({ success: false, error: 'Không thể tải hình ảnh từ trang đích.' });
+        let extractedText = '';
+        if (data && data.ParsedResults && data.ParsedResults.length > 0) {
+            extractedText = data.ParsedResults[0].ParsedText || '';
         }
-
-        const arrayBuffer = await imgRes.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-
-        const { data: { text } } = await worker.recognize(buffer);
-        await worker.terminate();
 
         return res.status(200).json({
             success: true,
-            text: text ? text.trim() : ''
+            text: extractedText.trim()
         });
 
     } catch (err) {
