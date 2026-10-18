@@ -1,5 +1,4 @@
 const fetch = require('node-fetch');
-const { URLSearchParams } = require('url');
 
 module.exports = async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -13,8 +12,10 @@ module.exports = async (req, res) => {
         return res.status(400).json({ success: false, error: 'Thiếu tham số URL ảnh!' });
     }
 
+    // Bạn có thể dán trực tiếp Gemini API Key vào đây hoặc để qua biến môi trường Vercel
+    const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'DÁN_GEMINI_API_KEY_CỦA_BẠN_VÀO_ĐÂY';
+
     try {
-        // Tự động bóc tách domain để làm Referer chuẩn lách chống trộm băng thông
         const parsedUrl = new URL(imageUrl);
         const dynamicReferer = `${parsedUrl.protocol}//${parsedUrl.hostname}/`;
 
@@ -26,35 +27,48 @@ module.exports = async (req, res) => {
         });
 
         if (!imgRes.ok) {
-            return res.status(200).json({ success: false, error: `Không tải được ảnh (HTTP ${imgRes.status})` });
+            return res.status(200).json({ success: false, error: 'Không tải được ảnh từ trang truyện.' });
         }
 
         const arrayBuffer = await imgRes.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-        const base64Data = `data:image/jpeg;base64,${buffer.toString('base64')}`;
+        const base64Data = Buffer.from(arrayBuffer).toString('base64');
+        const mimeType = imgRes.headers.get('content-type') || 'image/jpeg';
 
-        // Gửi dữ liệu sang OCR.space API
-        const params = new URLSearchParams();
-        params.append('apikey', 'helloworld');
-        params.append('language', 'vie');
-        params.append('base64Image', base64Data);
-        params.append('isOverlayRequired', 'false');
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+        
+        const payload = {
+            contents: [
+                {
+                    parts: [
+                        {
+                            text: "Hãy đọc và trích xuất toàn bộ văn bản, chữ viết, bong bóng thoại tiếng Việt có trong bức ảnh truyện tranh này. Chỉ trả về phần nội dung văn bản tìm được, giữ nguyên thứ tự từ trên xuống dưới, không thêm lời bình luận."
+                        },
+                        {
+                            inline_data: {
+                                mime_type: mimeType,
+                                data: base64Data
+                            }
+                        }
+                    ]
+                }
+            ]
+        };
 
-        const ocrResponse = await fetch('https://api.ocr.space/parse/image', {
+        const geminiRes = await fetch(geminiUrl, {
             method: 'POST',
-            body: params
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
         });
 
-        const data = await ocrResponse.json();
+        const geminiData = await geminiRes.json();
 
-        if (data.IsErroredOnProcessing) {
-            const errorMsg = data.ErrorMessage ? data.ErrorMessage[0] : 'Lỗi xử lý từ OCR.space';
-            return res.status(200).json({ success: false, error: errorMsg });
+        if (geminiData.error) {
+            return res.status(200).json({ success: false, error: geminiData.error.message });
         }
 
         let extractedText = '';
-        if (data && data.ParsedResults && data.ParsedResults.length > 0) {
-            extractedText = data.ParsedResults[0].ParsedText || '';
+        if (geminiData.candidates && geminiData.candidates[0]?.content?.parts?.[0]?.text) {
+            extractedText = geminiData.candidates[0].content.parts[0].text;
         }
 
         return res.status(200).json({
